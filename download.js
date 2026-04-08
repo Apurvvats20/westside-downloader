@@ -110,10 +110,9 @@ function limitConcurrency(tasks, limit = 5) {
   });
 }
 
-async function getFilesRecursive(folderServerRelativeUrl, siteUrl, dpiFilter) {
+async function getFilesRecursive(folderServerRelativeUrl, siteUrl, dpiFilter, depth = 0) {
   const site = siteUrl || SHAREPOINT_SITE;
   try {
-    // Fetch files and subfolders in parallel
     const [filesResponse, foldersResponse] = await Promise.all([
       spRequest(`${site}/_api/web/GetFolderByServerRelativeUrl('${encodeURIComponent(folderServerRelativeUrl)}')/Files?$select=Name,ServerRelativeUrl&$top=5000`),
       spRequest(`${site}/_api/web/GetFolderByServerRelativeUrl('${encodeURIComponent(folderServerRelativeUrl)}')/Folders?$select=Name,ServerRelativeUrl&$top=5000`),
@@ -125,15 +124,24 @@ async function getFilesRecursive(folderServerRelativeUrl, siteUrl, dpiFilter) {
     const subFolders = (foldersResponse?.d?.results || [])
       .filter((f) => f.Name !== "Forms" && !(dpiFilter && isDpiSiblingFolder(f.Name, dpiFilter)));
 
-    // Recurse into subfolders in parallel (max 5 at a time)
+    // Log subfolder names at depth 0 and 1 so user sees progress
+    if (depth <= 1 && subFolders.length > 0) {
+      const folderName = folderServerRelativeUrl.split("/").pop();
+      console.log(`   📂 Scanning ${folderName} — ${subFolders.length} subfolders found`);
+    }
+    if (files.length > 0 && depth >= 1) {
+      const folderName = folderServerRelativeUrl.split("/").pop();
+      console.log(`   🖼️  ${folderName} — ${files.length} file${files.length > 1 ? "s" : ""}`);
+    }
+
     const subResults = await limitConcurrency(
-      subFolders.map((folder) => () => getFilesRecursive(folder.ServerRelativeUrl, site, dpiFilter)),
+      subFolders.map((folder) => () => getFilesRecursive(folder.ServerRelativeUrl, site, dpiFilter, depth + 1)),
       5
     );
 
     return [...files, ...subResults.flat()];
   } catch (e) {
-    console.log(`Error scanning ${folderServerRelativeUrl}: ${e.message}`);
+    console.log(`   ⚠️  Error scanning ${folderServerRelativeUrl.split("/").pop()}: ${e.message}`);
     return [];
   }
 }
