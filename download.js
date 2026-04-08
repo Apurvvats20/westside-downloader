@@ -90,30 +90,48 @@ function spRequest(url) {
   });
 }
 
-async function getFilesRecursive(folderServerRelativeUrl, siteUrl, dpiFilter) {
-  const allFiles = [];
-  const site = siteUrl || SHAREPOINT_SITE;
-  try {
-    const filesUrl = `${site}/_api/web/GetFolderByServerRelativeUrl('${encodeURIComponent(folderServerRelativeUrl)}')/Files?$select=Name,ServerRelativeUrl&$top=5000`;
-    const filesResponse = await spRequest(filesUrl, site);
-    if (filesResponse?.d?.results) {
-      for (const file of filesResponse.d.results)
-        allFiles.push({ name: file.Name, url: file.ServerRelativeUrl });
-    }
-
-    const foldersUrl = `${site}/_api/web/GetFolderByServerRelativeUrl('${encodeURIComponent(folderServerRelativeUrl)}')/Folders?$select=Name,ServerRelativeUrl&$top=5000`;
-    const foldersResponse = await spRequest(foldersUrl, site);
-    if (foldersResponse?.d?.results) {
-      for (const folder of foldersResponse.d.results) {
-        if (folder.Name === "Forms") continue;
-        if (dpiFilter && isDpiSiblingFolder(folder.Name, dpiFilter)) continue;
-        allFiles.push(...await getFilesRecursive(folder.ServerRelativeUrl, site, dpiFilter));
+// Concurrency limiter — avoids hammering SharePoint with too many parallel requests
+function limitConcurrency(tasks, limit = 5) {
+  return new Promise((resolve) => {
+    const results = [];
+    let started = 0, finished = 0;
+    function next() {
+      if (finished === tasks.length) return resolve(results);
+      while (started < tasks.length && started - finished < limit) {
+        const i = started++;
+        tasks[i]().then((r) => { results[i] = r; finished++; next(); });
       }
     }
+    next();
+  });
+}
+
+async function getFilesRecursive(folderServerRelativeUrl, siteUrl, dpiFilter) {
+  const site = siteUrl || SHAREPOINT_SITE;
+  try {
+    // Fetch files and subfolders in parallel
+    const [filesResponse, foldersResponse] = await Promise.all([
+      spRequest(`${site}/_api/web/GetFolderByServerRelativeUrl('${encodeURIComponent(folderServerRelativeUrl)}')/Files?$select=Name,ServerRelativeUrl&$top=5000`),
+      spRequest(`${site}/_api/web/GetFolderByServerRelativeUrl('${encodeURIComponent(folderServerRelativeUrl)}')/Folders?$select=Name,ServerRelativeUrl&$top=5000`),
+    ]);
+
+    const files = (filesResponse?.d?.results || [])
+      .map((f) => ({ name: f.Name, url: f.ServerRelativeUrl }));
+
+    const subFolders = (foldersResponse?.d?.results || [])
+      .filter((f) => f.Name !== "Forms" && !(dpiFilter && isDpiSiblingFolder(f.Name, dpiFilter)));
+
+    // Recurse into subfolders in parallel (max 5 at a time)
+    const subResults = await limitConcurrency(
+      subFolders.map((folder) => () => getFilesRecursive(folder.ServerRelativeUrl, site, dpiFilter)),
+      5
+    );
+
+    return [...files, ...subResults.flat()];
   } catch (e) {
     console.log(`Error scanning ${folderServerRelativeUrl}: ${e.message}`);
+    return [];
   }
-  return allFiles;
 }
 
 function isDpiSiblingFolder(folderName, dpiFilter) {
@@ -144,15 +162,17 @@ function downloadFile(fileServerRelativeUrl, destPath, siteUrl) {
 // ============ SHARED: scan SP + download matching SKUs ============
 async function scanAndDownload(skusToProcess, cfg) {
   console.log("\nScanning SharePoint folders...");
-  const allFiles = [];
-  for (const folderUrl of cfg.search_folders) {
-    const { site, serverRelativeUrl } = parseSharePointUrl(folderUrl);
-    const label = serverRelativeUrl.split("/").pop();
-    console.log(`Scanning: ${serverRelativeUrl}`);
-    const files = await getFilesRecursive(serverRelativeUrl, site, cfg.dpi_folder || null);
-    console.log(`Found ${files.length} files in ${label}`);
-    allFiles.push(...files);
-  }
+  const scanResults = await Promise.all(
+    cfg.search_folders.map(async (folderUrl) => {
+      const { site, serverRelativeUrl } = parseSharePointUrl(folderUrl);
+      const label = serverRelativeUrl.split("/").pop();
+      console.log(`Scanning: ${serverRelativeUrl}`);
+      const files = await getFilesRecursive(serverRelativeUrl, site, cfg.dpi_folder || null);
+      console.log(`Found ${files.length} files in ${label}`);
+      return files;
+    })
+  );
+  const allFiles = scanResults.flat();
   console.log(`\nTotal files indexed: ${allFiles.length}`);
 
   const results = { found: [], notFound: [] };
