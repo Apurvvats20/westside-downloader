@@ -258,6 +258,16 @@ async function runExcelMode() {
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
   fs.writeFileSync(REPORT_PATH, JSON.stringify(reportData, null, 2), "utf8");
 
+  // Also persist report inside config.json so it survives restarts
+  const fullConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "config.json"), "utf8"));
+  const uploadedFiles = fullConfig.uploadedFiles || {};
+  const fileEntry = Object.values(uploadedFiles).find(e => cfg.file.endsWith(path.basename(cfg.file)));
+  const reportKey = fileEntry ? `report_${fileEntry.driveFileId}` : `report_${path.basename(cfg.file)}`;
+  if (!fullConfig.reports) fullConfig.reports = {};
+  fullConfig.reports[reportKey] = reportData;
+  fullConfig.currentReportKey = reportKey;
+  fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(fullConfig, null, 2), "utf8");
+
   console.log("\n========== SUMMARY ==========");
   console.log(`✅ SKUs found and downloaded: ${foundSkus.length}`);
   console.log(`❌ SKUs not found: ${results.notFound.length}`);

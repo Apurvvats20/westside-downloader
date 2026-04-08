@@ -152,6 +152,28 @@
     .file-remove { background: none; border: none; cursor: pointer; color: #5f6368; display: flex; align-items: center; }
     .file-remove:hover { color: #d93025; }
 
+    /* ── Prev files ── */
+    .prev-file-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+      background: white;
+      width: 100%;
+      text-align: left;
+    }
+    .prev-file-item:hover { border-color: #1a73e8; background: #f0f6ff; }
+    .prev-file-item.active { border-color: #1a73e8; background: #f0f6ff; }
+    .prev-file-item .material-icons { color: #5f6368; font-size: 18px; }
+    .prev-file-item.active .material-icons { color: #1a73e8; }
+    .prev-file-name { font-size: 13px; font-weight: 500; color: #202124; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prev-file-date { font-size: 11px; color: #9aa0a6; white-space: nowrap; }
+
     /* ── Run button ── */
     .run-btn {
       width: 100%;
@@ -381,6 +403,12 @@
         </button>
       </div>
 
+      <!-- Previously uploaded files -->
+      <div id="prevFilesSection" style="display:none;margin-top:14px">
+        <div style="font-size:12px;font-weight:500;color:#5f6368;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Previously uploaded</div>
+        <div id="prevFilesList"></div>
+      </div>
+
       <button class="run-btn" id="runBtn" disabled onclick="toggleRun()">
         <span class="material-icons">play_arrow</span>
         Start Download
@@ -457,7 +485,8 @@
     checkDriveStatus();
     setupDragDrop();
     loadReport();
-    window.addEventListener("focus", checkDriveStatus);
+    loadPrevFiles();
+    window.addEventListener("focus", () => { checkDriveStatus(); loadPrevFiles(); });
   });
 
   function loadReport() {
@@ -467,6 +496,57 @@
         if (!report) return;
         showSummary(report.foundCount, report.notFoundCount);
       });
+  }
+
+  let prevFiles = [];
+  let activeDriveFileId = null;
+
+  function loadPrevFiles() {
+    fetch("/api/files")
+      .then(r => r.json())
+      .then(files => {
+        prevFiles = files;
+        if (files.length === 0) return;
+        const section = document.getElementById("prevFilesSection");
+        const list = document.getElementById("prevFilesList");
+        section.style.display = "block";
+        list.innerHTML = files.map(f => `
+          <button class="prev-file-item" id="prev_${f.id}" onclick="selectPrevFile('${f.id}', '${f.name.replace(/'/g, "\\'")}')">
+            <span class="material-icons">description</span>
+            <span class="prev-file-name">${f.name}</span>
+            <span class="prev-file-date">${new Date(f.createdTime).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}</span>
+          </button>
+        `).join("");
+      })
+      .catch(() => {});
+  }
+
+  function selectPrevFile(fileId, filename) {
+    // Deactivate all
+    document.querySelectorAll(".prev-file-item").forEach(el => el.classList.remove("active"));
+    document.getElementById(`prev_${fileId}`)?.classList.add("active");
+
+    activeDriveFileId = fileId;
+
+    fetch("/api/select-file", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileId, filename }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { showToast(data.error, "error"); return; }
+        // Show as selected file
+        document.getElementById("uploadZone").classList.add("has-file");
+        document.getElementById("fileInfo").style.display = "flex";
+        document.getElementById("fileName").textContent = filename;
+        document.getElementById("runBtn").disabled = false;
+        // Load report if available
+        if (data.report) showSummary(data.report.foundCount, data.report.notFoundCount);
+        else { document.getElementById("summaryBar").style.display = "none"; }
+        showToast(`${filename} selected`, "success");
+      })
+      .catch(() => showToast("Failed to load file", "error"));
   }
 
   function showSummary(found, notFound) {
@@ -545,6 +625,7 @@
         document.getElementById("fileName").textContent = file.name;
         document.getElementById("runBtn").disabled = false;
         showToast("File ready", "success");
+        loadPrevFiles();
       })
       .catch(() => showToast("Upload failed", "error"));
   }

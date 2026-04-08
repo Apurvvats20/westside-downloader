@@ -123,4 +123,67 @@ async function uploadOutputFolder(outputBase, folderName, log = console.log) {
   return { folderId: rootId, link, folderName };
 }
 
-module.exports = { getAuthUrl, handleCallback, isConnected, uploadOutputFolder };
+// ── Upload/download small files (CSV, report.json) ──────────────────────────
+
+async function ensureFolder(name, parentId = null) {
+  const auth = getOAuth2Client();
+  const drive = google.drive({ version: "v3", auth });
+  // Check if folder already exists
+  const q = parentId
+    ? `name='${name}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`
+    : `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const res = await drive.files.list({ q, fields: "files(id,name)", spaces: "drive" });
+  if (res.data.files.length > 0) return res.data.files[0].id;
+  return await createDriveFolder(name, parentId);
+}
+
+async function uploadSmallFile(localPath, name, parentId) {
+  const auth = getOAuth2Client();
+  const drive = google.drive({ version: "v3", auth });
+  // Check if file already exists in folder — update it if so
+  const q = `name='${name}' and '${parentId}' in parents and trashed=false`;
+  const existing = await drive.files.list({ q, fields: "files(id)", spaces: "drive" });
+  if (existing.data.files.length > 0) {
+    const fileId = existing.data.files[0].id;
+    await drive.files.update({
+      fileId,
+      media: { body: fs.createReadStream(localPath) },
+    });
+    return fileId;
+  }
+  const res = await drive.files.create({
+    requestBody: { name, parents: [parentId] },
+    media: { body: fs.createReadStream(localPath) },
+    fields: "id",
+  });
+  return res.data.id;
+}
+
+async function downloadSmallFile(fileId) {
+  const auth = getOAuth2Client();
+  const drive = google.drive({ version: "v3", auth });
+  const res = await drive.files.get({ fileId, alt: "media" }, { responseType: "text" });
+  return res.data;
+}
+
+async function listFilesInFolder(folderId) {
+  const auth = getOAuth2Client();
+  const drive = google.drive({ version: "v3", auth });
+  const res = await drive.files.list({
+    q: `'${folderId}' in parents and trashed=false`,
+    fields: "files(id,name,createdTime)",
+    orderBy: "createdTime desc",
+    spaces: "drive",
+  });
+  return res.data.files;
+}
+
+async function getUploadsFolderId() {
+  const rootId = await ensureFolder("WESTSIDE - Uploads");
+  return rootId;
+}
+
+module.exports = {
+  getAuthUrl, handleCallback, isConnected, uploadOutputFolder,
+  ensureFolder, uploadSmallFile, downloadSmallFile, listFilesInFolder, getUploadsFolderId,
+};

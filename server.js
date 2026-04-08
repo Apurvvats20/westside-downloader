@@ -4,7 +4,7 @@ const fs = require("fs");
 const os = require("os");
 const { spawn, exec } = require("child_process");
 const multer = require("multer");
-const { getAuthUrl, handleCallback, isConnected } = require("./gdrive");
+const { getAuthUrl, handleCallback, isConnected, uploadSmallFile, downloadSmallFile, listFilesInFolder, getUploadsFolderId } = require("./gdrive");
 
 // ── Bootstrap config.json from template + env vars if missing ────────────────
 const CONFIG_PATH = path.join(__dirname, "config.json");
@@ -34,8 +34,8 @@ function writeConfig(cfg) {
   fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(cfg, null, 2), "utf8");
 }
 
-// ── Upload CSV/Excel ──────────────────────────────────────────────────────────
-app.post("/api/upload", upload.single("file"), (req, res) => {
+// ── Upload CSV/Excel → save locally + upload to Drive ────────────────────────
+app.post("/api/upload", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
   const ext = path.extname(req.file.originalname).toLowerCase();
@@ -44,16 +44,67 @@ app.post("/api/upload", upload.single("file"), (req, res) => {
     return res.status(400).json({ error: "Only CSV or Excel files are supported" });
   }
 
-  // Save with original name in uploads folder
   const destPath = path.join(__dirname, "uploads", req.file.originalname);
   fs.renameSync(req.file.path, destPath);
 
   // Update config with new file path
   const cfg = readConfig();
   cfg.excel.file = destPath;
+
+  // Upload to Drive if connected
+  let driveFileId = null;
+  if (isConnected()) {
+    try {
+      const folderId = await getUploadsFolderId();
+      driveFileId = await uploadSmallFile(destPath, req.file.originalname, folderId);
+      // Store mapping filename → driveFileId in config
+      if (!cfg.uploadedFiles) cfg.uploadedFiles = {};
+      cfg.uploadedFiles[req.file.originalname] = { driveFileId, uploadedAt: new Date().toISOString() };
+    } catch (e) {
+      console.error("Drive upload failed:", e.message);
+    }
+  }
   writeConfig(cfg);
 
-  res.json({ success: true, filename: req.file.originalname });
+  res.json({ success: true, filename: req.file.originalname, driveFileId });
+});
+
+// ── List previously uploaded CSVs ─────────────────────────────────────────────
+app.get("/api/files", async (req, res) => {
+  if (!isConnected()) return res.json([]);
+  try {
+    const folderId = await getUploadsFolderId();
+    const files = await listFilesInFolder(folderId);
+    // Filter only CSV/Excel files (not report JSONs)
+    const csvFiles = files.filter(f => /\.(csv|xlsx|xls)$/i.test(f.name));
+    res.json(csvFiles);
+  } catch (e) {
+    res.json([]);
+  }
+});
+
+// ── Select a previously uploaded file ────────────────────────────────────────
+app.post("/api/select-file", async (req, res) => {
+  const { fileId, filename } = req.body;
+  if (!fileId || !filename) return res.status(400).json({ error: "Missing fileId or filename" });
+  try {
+    // Download file from Drive to local uploads folder
+    const destPath = path.join(__dirname, "uploads", filename);
+    const content = await downloadSmallFile(fileId);
+    fs.writeFileSync(destPath, typeof content === "string" ? content : JSON.stringify(content), "utf8");
+
+    const cfg = readConfig();
+    cfg.excel.file = destPath;
+    writeConfig(cfg);
+
+    // Load report for this file if it exists
+    const reportKey = `report_${fileId}`;
+    const report = cfg.reports?.[reportKey] || null;
+
+    res.json({ success: true, filename, report });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── Update cookie (admin only) ───────────────────────────────────────────────
@@ -103,9 +154,18 @@ app.post("/api/gdrive-disconnect", (req, res) => {
 const REPORT_PATH = path.join(__dirname, "uploads", "report.json");
 
 app.get("/api/report", (req, res) => {
-  if (!fs.existsSync(REPORT_PATH)) return res.json(null);
-  try { res.json(JSON.parse(fs.readFileSync(REPORT_PATH, "utf8"))); }
-  catch { res.json(null); }
+  // Try local file first, fallback to config
+  if (fs.existsSync(REPORT_PATH)) {
+    try { return res.json(JSON.parse(fs.readFileSync(REPORT_PATH, "utf8"))); } catch {}
+  }
+  // Try reading from config.reports keyed by current file
+  try {
+    const cfg = readConfig();
+    if (cfg.currentReportKey && cfg.reports?.[cfg.currentReportKey]) {
+      return res.json(cfg.reports[cfg.currentReportKey]);
+    }
+  } catch {}
+  res.json(null);
 });
 
 // ── Run (SSE) ─────────────────────────────────────────────────────────────────
