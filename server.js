@@ -134,18 +134,7 @@ app.get("/api/run", (req, res) => {
     return;
   }
 
-  runningProcess = spawn("node", ["download.js"], { cwd: __dirname });
-  runningProcess.stdout.on("data", (d) => send("log", d.toString()));
-  runningProcess.stderr.on("data", (d) => send("error", d.toString()));
-  runningProcess.on("close", (code) => {
-    send("done", String(code));
-    runningProcess = null;
-    res.end();
-  });
-
-  req.on("close", () => {
-    if (runningProcess) { runningProcess.kill(); runningProcess = null; }
-  });
+  spawnWithSSE("download.js", [], res, send);
 });
 
 // ── Rescan (SSE) ──────────────────────────────────────────────────────────────
@@ -165,19 +154,28 @@ app.get("/api/rescan", (req, res) => {
     return;
   }
 
-  runningProcess = spawn("node", ["download.js", "--rescan"], { cwd: __dirname });
+  spawnWithSSE("download.js", ["--rescan"], res, send);
+});
+
+function spawnWithSSE(script, args, res, send) {
+  // Keep-alive ping every 20s so Railway doesn't cut the SSE connection
+  const ping = setInterval(() => res.write(": ping\n\n"), 20000);
+
+  runningProcess = spawn("node", [script, ...args], { cwd: __dirname });
   runningProcess.stdout.on("data", (d) => send("log", d.toString()));
   runningProcess.stderr.on("data", (d) => send("error", d.toString()));
   runningProcess.on("close", (code) => {
+    clearInterval(ping);
     send("done", String(code));
     runningProcess = null;
     res.end();
   });
 
-  req.on("close", () => {
+  res.on("close", () => {
+    clearInterval(ping);
     if (runningProcess) { runningProcess.kill(); runningProcess = null; }
   });
-});
+}
 
 app.post("/api/stop", (req, res) => {
   if (runningProcess) { runningProcess.kill(); runningProcess = null; res.json({ stopped: true }); }

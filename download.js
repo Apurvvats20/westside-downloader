@@ -93,13 +93,17 @@ function spRequest(url) {
 // Concurrency limiter — avoids hammering SharePoint with too many parallel requests
 function limitConcurrency(tasks, limit = 5) {
   return new Promise((resolve) => {
+    if (tasks.length === 0) return resolve([]);
     const results = [];
     let started = 0, finished = 0;
     function next() {
       if (finished === tasks.length) return resolve(results);
       while (started < tasks.length && started - finished < limit) {
         const i = started++;
-        tasks[i]().then((r) => { results[i] = r; finished++; next(); });
+        tasks[i]()
+          .then((r) => { results[i] = r; })
+          .catch(() => { results[i] = []; })
+          .finally(() => { finished++; next(); });
       }
     }
     next();
