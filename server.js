@@ -168,6 +168,25 @@ app.get("/api/report", (req, res) => {
   res.json(null);
 });
 
+// ── Seed report (one-time use to set initial state) ───────────────────────────
+app.post("/api/seed-report", (req, res) => {
+  try {
+    const report = req.body;
+    const cfg = readConfig();
+    const reportKey = `report_${report.file}`;
+    if (!cfg.reports) cfg.reports = {};
+    cfg.reports[reportKey] = report;
+    cfg.currentReportKey = reportKey;
+    // Also write local report.json
+    fs.mkdirSync(path.join(__dirname, "uploads"), { recursive: true });
+    fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2), "utf8");
+    writeConfig(cfg);
+    res.json({ success: true, foundCount: report.foundCount, notFoundCount: report.notFoundCount });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Run (SSE) ─────────────────────────────────────────────────────────────────
 app.get("/api/run", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
