@@ -582,47 +582,68 @@
     document.getElementById("runBtn").innerHTML = `<span class="material-icons">stop</span> ${stopLabel}`;
     document.getElementById("rescanBtn").disabled = true;
 
-    es = new EventSource(endpoint);
-    es.onmessage = (e) => {
-      const { type, message } = JSON.parse(e.data);
-      if (type === "done") {
-        es.close();
-        running = false;
-        document.getElementById("progressBar").style.display = "none";
-        document.getElementById("runBtn").className = "run-btn";
-        document.getElementById("runBtn").innerHTML = `<span class="material-icons">play_arrow</span> Start Download`;
-        document.getElementById("rescanBtn").disabled = false;
-        const code = parseInt(message, 10);
-        showToast(code === 0 ? "Completed successfully" : "Finished with some errors", code === 0 ? "success" : "error");
-        // Refresh report stats
-        loadReport();
-      } else {
-        if (message && message.includes("🔗 DRIVE_LINK:")) {
-          driveLink = message.split("🔗 DRIVE_LINK:")[1].trim();
-          document.getElementById("driveLinkText").textContent = driveLink;
-          document.getElementById("driveResult").style.display = "flex";
+    // Use fetch-based SSE to avoid HTTP/2 protocol errors on Railway
+    streamWithFetch(endpoint);
+  }
+
+  async function streamWithFetch(endpoint) {
+    const controller = new AbortController();
+    window._fetchAbort = controller;
+    try {
+      const response = await fetch(endpoint, { signal: controller.signal });
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop(); // keep incomplete line
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const { type, message } = JSON.parse(line.slice(6));
+              if (type === "done") {
+                running = false;
+                document.getElementById("progressBar").style.display = "none";
+                document.getElementById("runBtn").className = "run-btn";
+                document.getElementById("runBtn").innerHTML = `<span class="material-icons">play_arrow</span> Start Download`;
+                document.getElementById("rescanBtn").disabled = false;
+                const code = parseInt(message, 10);
+                showToast(code === 0 ? "Completed successfully" : "Finished with some errors", code === 0 ? "success" : "error");
+                loadReport();
+              } else {
+                if (message && message.includes("🔗 DRIVE_LINK:")) {
+                  driveLink = message.split("🔗 DRIVE_LINK:")[1].trim();
+                  document.getElementById("driveLinkText").textContent = driveLink;
+                  document.getElementById("driveResult").style.display = "flex";
+                }
+                if (message && message.includes("📊 REPORT:")) {
+                  try {
+                    const data = JSON.parse(message.split("📊 REPORT:")[1].trim());
+                    showSummary(data.found, data.notFound);
+                  } catch {}
+                }
+                appendLog(message, type === "error");
+              }
+            } catch {}
+          }
         }
-        if (message && message.includes("📊 REPORT:")) {
-          try {
-            const data = JSON.parse(message.split("📊 REPORT:")[1].trim());
-            showSummary(data.found, data.notFound);
-          } catch {}
-        }
-        appendLog(message, type === "error");
       }
-    };
-    es.onerror = () => {
-      es.close();
+    } catch (err) {
       running = false;
       document.getElementById("progressBar").style.display = "none";
       document.getElementById("runBtn").className = "run-btn";
       document.getElementById("runBtn").innerHTML = `<span class="material-icons">play_arrow</span> Start Download`;
       document.getElementById("rescanBtn").disabled = false;
-    };
+      appendLog("Connection error: " + err.message, true);
+    }
   }
 
   function stopRun() {
-    if (es) es.close();
+    if (window._fetchAbort) window._fetchAbort.abort();
     fetch("/api/stop", { method: "POST" });
     running = false;
     document.getElementById("progressBar").style.display = "none";
