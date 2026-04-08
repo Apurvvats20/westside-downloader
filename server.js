@@ -97,9 +97,10 @@ app.post("/api/select-file", async (req, res) => {
     cfg.excel.file = destPath;
     writeConfig(cfg);
 
-    // Load report for this file if it exists
-    const reportKey = `report_${fileId}`;
-    const report = cfg.reports?.[reportKey] || null;
+    // Load report — try Drive fileId key first, then filename key
+    const report = cfg.reports?.[`report_${fileId}`]
+      || cfg.reports?.[`report_${filename}`]
+      || (fs.existsSync(REPORT_PATH) ? JSON.parse(fs.readFileSync(REPORT_PATH, "utf8")) : null);
 
     res.json({ success: true, filename, report });
   } catch (e) {
