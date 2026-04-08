@@ -111,8 +111,9 @@ app.get("/api/report", (req, res) => {
 // ── Run (SSE) ─────────────────────────────────────────────────────────────────
 app.get("/api/run", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
   const send = (type, message) =>
@@ -140,8 +141,9 @@ app.get("/api/run", (req, res) => {
 // ── Rescan (SSE) ──────────────────────────────────────────────────────────────
 app.get("/api/rescan", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
   const send = (type, message) =>
