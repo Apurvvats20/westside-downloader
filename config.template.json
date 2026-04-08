@@ -1,0 +1,28 @@
+{
+  "sharepoint_site": "https://trentlimited.sharepoint.com/sites/E-ComWSXYoshiStudio",
+  "auth": {
+    "cookie": ""
+  },
+  "mode": "excel",
+  "excel": {
+    "file": "",
+    "sku_column": "Key1",
+    "brand_column": "Brand",
+    "search_folders": [
+      "https://trentlimited.sharepoint.com/sites/E-ComWSXYoshiStudio/Shared Documents/E-Com WS X Yoshi/Images/Products - NEW/Footwear",
+      "https://trentlimited.sharepoint.com/sites/E-ComWSXYoshiStudio/Shared Documents/E-Com WS X Yoshi/Images/Products - NEW/Kids"
+    ],
+    "dpi_folder": "300 DPI"
+  },
+  "download_all": {
+    "sharepoint_url": "https://trentlimited.sharepoint.com/sites/E-ComWSXYoshiStudio/Shared Documents/E-Com WS X Yoshi/Images/Products - NEW/Footwear",
+    "dpi_folder": "300 DPI"
+  },
+  "output_folder": "",
+  "google": {
+    "client_id": "",
+    "client_secret": "",
+    "redirect_uri": "",
+    "tokens": null
+  }
+}

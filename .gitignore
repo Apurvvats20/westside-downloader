@@ -1,0 +1,13 @@
+node_modules/
+config.json
+uploads/
+images/
+downloads/
+*.csv
+*.xlsx
+*.xls
+not_found_log.txt
+download_report.csv
+.env
+.DS_Store
+.claude/

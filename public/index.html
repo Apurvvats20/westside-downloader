@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Westside Image Downloader</title>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Google Sans', 'Roboto', sans-serif;
+      background: #f8f9fa;
+      color: #202124;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: white;
+      border-bottom: 1px solid #e0e0e0;
+      padding: 0 24px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .header-logo {
+      width: 32px;
+      height: 32px;
+      background: #1a73e8;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 18px;
+    }
+    .header-title {
+      font-size: 18px;
+      font-weight: 500;
+      color: #202124;
+    }
+    .drive-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: background 0.15s;
+    }
+    .drive-badge.connected {
+      background: #e6f4ea;
+      color: #1e7e34;
+    }
+    .drive-badge.disconnected {
+      background: #1a73e8;
+      color: white;
+    }
+    .drive-badge.disconnected:hover { background: #1558b0; }
+    .drive-badge .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #34a853;
+    }
+
+    /* ── Main ── */
+    main {
+      max-width: 640px;
+      margin: 40px auto;
+      padding: 0 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .card-body { padding: 24px; }
+
+    /* ── Upload zone ── */
+    .upload-zone {
+      border: 2px dashed #dadce0;
+      border-radius: 8px;
+      padding: 40px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: #1a73e8;
+      background: #f0f6ff;
+    }
+    .upload-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+    .upload-icon {
+      font-size: 40px !important;
+      color: #1a73e8;
+      margin-bottom: 12px;
+    }
+    .upload-title {
+      font-size: 15px;
+      font-weight: 500;
+      color: #202124;
+      margin-bottom: 4px;
+    }
+    .upload-sub {
+      font-size: 13px;
+      color: #5f6368;
+    }
+    .upload-zone.has-file {
+      border-style: solid;
+      border-color: #34a853;
+      background: #f0faf3;
+    }
+    .file-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      background: #f0faf3;
+      border: 1px solid #ceead6;
+      border-radius: 8px;
+      margin-top: 12px;
+    }
+    .file-info .material-icons { color: #34a853; font-size: 20px; }
+    .file-name { font-size: 13px; font-weight: 500; color: #202124; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-remove { background: none; border: none; cursor: pointer; color: #5f6368; display: flex; align-items: center; }
+    .file-remove:hover { color: #d93025; }
+
+    /* ── Run button ── */
+    .run-btn {
+      width: 100%;
+      padding: 14px;
+      background: #1a73e8;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.15s, box-shadow 0.15s;
+      margin-top: 16px;
+    }
+    .run-btn:hover:not(:disabled) { background: #1558b0; box-shadow: 0 2px 6px rgba(26,115,232,0.3); }
+    .run-btn:disabled { background: #dadce0; color: #9aa0a6; cursor: not-allowed; }
+    .run-btn.stop { background: #d93025; }
+    .run-btn.stop:hover { background: #b0221a; }
+
+    /* ── Progress ── */
+    .progress-bar-wrap {
+      height: 3px;
+      background: #e8eaed;
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: #1a73e8;
+      animation: indeterminate 1.5s infinite ease-in-out;
+      width: 40%;
+    }
+    @keyframes indeterminate {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(350%); }
+    }
+
+    .log-box {
+      background: #1e1e1e;
+      border-radius: 8px;
+      padding: 16px;
+      height: 300px;
+      overflow-y: auto;
+      font-family: 'Roboto Mono', 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+    .log-box::-webkit-scrollbar { width: 6px; }
+    .log-box::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+    .log-empty { color: #555; }
+
+    /* ── Summary bar ── */
+    .summary-bar {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      border-top: 1px solid #e0e0e0;
+    }
+    .summary-stat {
+      flex: 1;
+      padding: 14px 20px;
+      text-align: center;
+    }
+    .summary-stat + .summary-stat { border-left: 1px solid #e0e0e0; }
+    .summary-num { font-size: 22px; font-weight: 700; }
+    .summary-num.found { color: #34a853; }
+    .summary-num.notfound { color: #d93025; }
+    .summary-label { font-size: 12px; color: #5f6368; margin-top: 2px; }
+    .rescan-btn {
+      flex: 1.5;
+      margin: 12px 16px;
+      padding: 10px 16px;
+      background: white;
+      color: #1a73e8;
+      border: 2px solid #1a73e8;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.15s;
+    }
+    .rescan-btn:hover { background: #f0f6ff; }
+    .rescan-btn:disabled { border-color: #dadce0; color: #9aa0a6; cursor: not-allowed; background: white; }
+
+    /* ── Drive result ── */
+    .drive-result {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      background: #e6f4ea;
+      border-top: 1px solid #ceead6;
+    }
+    .drive-result .material-icons { color: #34a853; font-size: 24px; }
+    .drive-result-text { flex: 1; }
+    .drive-result-title { font-size: 14px; font-weight: 500; color: #137333; }
+    .drive-result-sub { font-size: 12px; color: #5f6368; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
+    .open-btn {
+      padding: 8px 16px;
+      background: #34a853;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+    .open-btn:hover { background: #2d8f47; }
+
+    /* ── Settings ── */
+    .settings-toggle {
+      background: none;
+      border: none;
+      color: #5f6368;
+      font-family: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 0;
+    }
+    .settings-toggle:hover { color: #202124; }
+    .settings-panel { padding: 16px 24px 24px; border-top: 1px solid #f1f3f4; }
+    .settings-label { font-size: 12px; font-weight: 500; color: #5f6368; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .settings-input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #dadce0;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 13px;
+      color: #202124;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .settings-input:focus { border-color: #1a73e8; }
+    .save-btn {
+      margin-top: 10px;
+      padding: 8px 16px;
+      background: #1a73e8;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .save-btn:hover { background: #1558b0; }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #323232;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 9999;
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+    .toast.success { background: #137333; }
+    .toast.error { background: #c5221f; }
+
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <div class="header-logo"><span class="material-icons" style="font-size:18px">cloud_download</span></div>
+    <span class="header-title">Westside Image Downloader</span>
+  </div>
+  <button class="drive-badge disconnected" id="driveBadge" onclick="connectDrive()">
+    <span class="material-icons" style="font-size:16px">add_to_drive</span>
+    Connect Drive
+  </button>
+</header>
+
+<main>
+  <!-- Upload card -->
+  <div class="card">
+    <div class="card-body">
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" onchange="handleFile(this.files[0])" />
+        <span class="material-icons upload-icon">upload_file</span>
+        <div class="upload-title">Drop your Excel or CSV file here</div>
+        <div class="upload-sub">or click to browse</div>
+      </div>
+
+      <div class="file-info" id="fileInfo" style="display:none">
+        <span class="material-icons">description</span>
+        <span class="file-name" id="fileName"></span>
+        <button class="file-remove" onclick="removeFile()" title="Remove">
+          <span class="material-icons" style="font-size:18px">close</span>
+        </button>
+      </div>
+
+      <button class="run-btn" id="runBtn" disabled onclick="toggleRun()">
+        <span class="material-icons">play_arrow</span>
+        Start Download
+      </button>
+    </div>
+  </div>
+
+  <!-- Progress / Logs card (hidden until run) -->
+  <div class="card" id="logsCard" style="display:none">
+    <div class="card-body">
+      <div class="progress-bar-wrap" id="progressBar" style="display:none">
+        <div class="progress-bar-fill"></div>
+      </div>
+      <div class="log-box" id="logBox">
+        <span class="log-empty">Output will appear here…</span>
+      </div>
+    </div>
+    <!-- Summary + Rescan -->
+    <div class="summary-bar" id="summaryBar" style="display:none">
+      <div class="summary-stat">
+        <div class="summary-num found" id="foundCount">0</div>
+        <div class="summary-label">Found & Downloaded</div>
+      </div>
+      <div class="summary-stat">
+        <div class="summary-num notfound" id="notFoundCount">0</div>
+        <div class="summary-label">Not Found</div>
+      </div>
+      <button class="rescan-btn" id="rescanBtn" onclick="startRescan()" style="display:none">
+        <span class="material-icons" style="font-size:16px">refresh</span>
+        <span id="rescanLabel">Rescan Not Found</span>
+      </button>
+    </div>
+
+    <div class="drive-result" id="driveResult" style="display:none">
+      <span class="material-icons">folder_shared</span>
+      <div class="drive-result-text">
+        <div class="drive-result-title">Drive folder ready — anyone with the link can edit</div>
+        <div class="drive-result-sub" id="driveLinkText"></div>
+      </div>
+      <button class="open-btn" id="openDriveBtn" onclick="openDrive()">
+        <span class="material-icons" style="font-size:15px">open_in_new</span>
+        Open
+      </button>
+    </div>
+  </div>
+
+  <!-- Settings (admin) -->
+  <div class="card">
+    <div class="card-body" style="padding-bottom:12px">
+      <button class="settings-toggle" onclick="toggleSettings()">
+        <span class="material-icons" style="font-size:16px">settings</span>
+        Admin Settings
+        <span class="material-icons" style="font-size:16px" id="settingsChevron">expand_more</span>
+      </button>
+    </div>
+    <div class="settings-panel" id="settingsPanel" style="display:none">
+      <div class="settings-label">SharePoint FedAuth Cookie</div>
+      <input type="password" class="settings-input" id="cookieInput" placeholder="Paste updated FedAuth cookie here" />
+      <button class="save-btn" onclick="saveCookie()">Save Cookie</button>
+    </div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  let running = false;
+  let es = null;
+  let driveLink = null;
+  let selectedFile = null;
+
+  // ── Init ──
+  window.addEventListener("load", () => {
+    checkDriveStatus();
+    setupDragDrop();
+    loadReport();
+    window.addEventListener("focus", checkDriveStatus);
+  });
+
+  function loadReport() {
+    fetch("/api/report")
+      .then(r => r.json())
+      .then(report => {
+        if (!report) return;
+        showSummary(report.foundCount, report.notFoundCount);
+      });
+  }
+
+  function showSummary(found, notFound) {
+    document.getElementById("foundCount").textContent = found;
+    document.getElementById("notFoundCount").textContent = notFound;
+    document.getElementById("summaryBar").style.display = "flex";
+    const rescanBtn = document.getElementById("rescanBtn");
+    if (notFound > 0) {
+      rescanBtn.style.display = "flex";
+      document.getElementById("rescanLabel").textContent = `Rescan Not Found (${notFound})`;
+    } else {
+      rescanBtn.style.display = "none";
+    }
+  }
+
+  function checkDriveStatus() {
+    fetch("/api/gdrive-status")
+      .then(r => r.json())
+      .then(({ connected }) => updateDriveBadge(connected));
+  }
+
+  function updateDriveBadge(connected) {
+    const badge = document.getElementById("driveBadge");
+    if (connected) {
+      badge.className = "drive-badge connected";
+      badge.innerHTML = `<span class="dot"></span> Drive Connected`;
+      badge.onclick = disconnectDrive;
+    } else {
+      badge.className = "drive-badge disconnected";
+      badge.innerHTML = `<span class="material-icons" style="font-size:16px">add_to_drive</span> Connect Drive`;
+      badge.onclick = connectDrive;
+    }
+  }
+
+  function connectDrive() {
+    window.open("/auth/google", "_blank", "width=500,height=620");
+  }
+
+  function disconnectDrive() {
+    if (!confirm("Disconnect Google Drive?")) return;
+    fetch("/api/gdrive-disconnect", { method: "POST" })
+      .then(() => updateDriveBadge(false));
+  }
+
+  // ── File handling ──
+  function setupDragDrop() {
+    const zone = document.getElementById("uploadZone");
+    zone.addEventListener("dragover", e => { e.preventDefault(); zone.classList.add("drag-over"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
+    zone.addEventListener("drop", e => {
+      e.preventDefault();
+      zone.classList.remove("drag-over");
+      const file = e.dataTransfer.files[0];
+      if (file) handleFile(file);
+    });
+  }
+
+  function handleFile(file) {
+    if (!file) return;
+    const ext = file.name.split(".").pop().toLowerCase();
+    if (!["csv","xlsx","xls"].includes(ext)) {
+      showToast("Only CSV or Excel files are supported", "error");
+      return;
+    }
+
+    selectedFile = file;
+    const formData = new FormData();
+    formData.append("file", file);
+
+    fetch("/api/upload", { method: "POST", body: formData })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { showToast(data.error, "error"); return; }
+        document.getElementById("uploadZone").classList.add("has-file");
+        document.getElementById("fileInfo").style.display = "flex";
+        document.getElementById("fileName").textContent = file.name;
+        document.getElementById("runBtn").disabled = false;
+        showToast("File ready", "success");
+      })
+      .catch(() => showToast("Upload failed", "error"));
+  }
+
+  function removeFile() {
+    selectedFile = null;
+    document.getElementById("fileInput").value = "";
+    document.getElementById("uploadZone").classList.remove("has-file");
+    document.getElementById("fileInfo").style.display = "none";
+    document.getElementById("runBtn").disabled = true;
+  }
+
+  // ── Run / Stop ──
+  function toggleRun() {
+    if (running) stopRun();
+    else startRun();
+  }
+
+  function startRescan() {
+    startRunWithEndpoint("/api/rescan", "Rescanning…");
+  }
+
+  function startRun() {
+    startRunWithEndpoint("/api/run", "Stop");
+  }
+
+  function startRunWithEndpoint(endpoint, stopLabel) {
+    running = true;
+    driveLink = null;
+    document.getElementById("logsCard").style.display = "block";
+    document.getElementById("progressBar").style.display = "block";
+    document.getElementById("driveResult").style.display = "none";
+    document.getElementById("logBox").innerHTML = "";
+    document.getElementById("runBtn").className = "run-btn stop";
+    document.getElementById("runBtn").innerHTML = `<span class="material-icons">stop</span> ${stopLabel}`;
+    document.getElementById("rescanBtn").disabled = true;
+
+    es = new EventSource(endpoint);
+    es.onmessage = (e) => {
+      const { type, message } = JSON.parse(e.data);
+      if (type === "done") {
+        es.close();
+        running = false;
+        document.getElementById("progressBar").style.display = "none";
+        document.getElementById("runBtn").className = "run-btn";
+        document.getElementById("runBtn").innerHTML = `<span class="material-icons">play_arrow</span> Start Download`;
+        document.getElementById("rescanBtn").disabled = false;
+        const code = parseInt(message, 10);
+        showToast(code === 0 ? "Completed successfully" : "Finished with some errors", code === 0 ? "success" : "error");
+        // Refresh report stats
+        loadReport();
+      } else {
+        if (message && message.includes("🔗 DRIVE_LINK:")) {
+          driveLink = message.split("🔗 DRIVE_LINK:")[1].trim();
+          document.getElementById("driveLinkText").textContent = driveLink;
+          document.getElementById("driveResult").style.display = "flex";
+        }
+        if (message && message.includes("📊 REPORT:")) {
+          try {
+            const data = JSON.parse(message.split("📊 REPORT:")[1].trim());
+            showSummary(data.found, data.notFound);
+          } catch {}
+        }
+        appendLog(message, type === "error");
+      }
+    };
+    es.onerror = () => {
+      es.close();
+      running = false;
+      document.getElementById("progressBar").style.display = "none";
+      document.getElementById("runBtn").className = "run-btn";
+      document.getElementById("runBtn").innerHTML = `<span class="material-icons">play_arrow</span> Start Download`;
+      document.getElementById("rescanBtn").disabled = false;
+    };
+  }
+
+  function stopRun() {
+    if (es) es.close();
+    fetch("/api/stop", { method: "POST" });
+    running = false;
+    document.getElementById("progressBar").style.display = "none";
+    document.getElementById("runBtn").className = "run-btn";
+    document.getElementById("runBtn").innerHTML = `<span class="material-icons">play_arrow</span> Start Download`;
+    showToast("Stopped", "");
+  }
+
+  function appendLog(msg, isError) {
+    const box = document.getElementById("logBox");
+    const line = document.createElement("div");
+    line.style.cssText = `color:${isError ? "#f48771" : logColor(msg)};white-space:pre-wrap;word-break:break-all`;
+    line.textContent = msg;
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function logColor(msg) {
+    if (msg.includes("✅") || msg.includes("Downloaded") || msg.includes("☁️")) return "#4ec9b0";
+    if (msg.includes("❌") || msg.includes("Error") || msg.includes("Failed")) return "#f48771";
+    if (msg.includes("===") || msg.includes("SUMMARY") || msg.includes("🔗")) return "#dcdcaa";
+    if (msg.includes("Scanning") || msg.includes("Found") || msg.includes("Total")) return "#9cdcfe";
+    return "#d4d4d4";
+  }
+
+  function openDrive() {
+    if (driveLink) window.open(driveLink, "_blank");
+  }
+
+  // ── Settings ──
+  function toggleSettings() {
+    const panel = document.getElementById("settingsPanel");
+    const chevron = document.getElementById("settingsChevron");
+    const open = panel.style.display === "none";
+    panel.style.display = open ? "block" : "none";
+    chevron.textContent = open ? "expand_less" : "expand_more";
+  }
+
+  function saveCookie() {
+    const cookie = document.getElementById("cookieInput").value.trim();
+    if (!cookie) return;
+    fetch("/api/update-cookie", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cookie }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          document.getElementById("cookieInput").value = "";
+          showToast("Cookie saved", "success");
+        }
+      });
+  }
+
+  // ── Toast ──
+  let toastTimer;
+  function showToast(msg, type = "") {
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.className = `toast show ${type}`;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.className = "toast", 3000);
+  }
+</script>
+</body>
+</html>

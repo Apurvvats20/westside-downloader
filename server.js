@@ -1,0 +1,189 @@
+const express = require("express");
+const path = require("path");
+const fs = require("fs");
+const os = require("os");
+const { spawn, exec } = require("child_process");
+const multer = require("multer");
+const { getAuthUrl, handleCallback, isConnected } = require("./gdrive");
+
+// ── Bootstrap config.json from template + env vars if missing ────────────────
+const CONFIG_PATH = path.join(__dirname, "config.json");
+if (!fs.existsSync(CONFIG_PATH)) {
+  const template = JSON.parse(fs.readFileSync(path.join(__dirname, "config.template.json"), "utf8"));
+  if (process.env.GOOGLE_CLIENT_ID)     template.google.client_id     = process.env.GOOGLE_CLIENT_ID;
+  if (process.env.GOOGLE_CLIENT_SECRET) template.google.client_secret = process.env.GOOGLE_CLIENT_SECRET;
+  if (process.env.GOOGLE_REDIRECT_URI)  template.google.redirect_uri  = process.env.GOOGLE_REDIRECT_URI;
+  if (process.env.SP_COOKIE)            template.auth.cookie           = process.env.SP_COOKIE;
+  fs.mkdirSync(path.join(__dirname, "uploads"), { recursive: true });
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(template, null, 2), "utf8");
+  console.log("✅ config.json created from template");
+}
+
+const app = express();
+app.use(express.json({ limit: "10mb" }));
+app.use(express.static(path.join(__dirname, "public")));
+
+const upload = multer({ dest: path.join(__dirname, "uploads") });
+let runningProcess = null;
+
+// ── Config (internal use only) ───────────────────────────────────────────────
+function readConfig() {
+  return JSON.parse(fs.readFileSync(path.join(__dirname, "config.json"), "utf8"));
+}
+function writeConfig(cfg) {
+  fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(cfg, null, 2), "utf8");
+}
+
+// ── Upload CSV/Excel ──────────────────────────────────────────────────────────
+app.post("/api/upload", upload.single("file"), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+  const ext = path.extname(req.file.originalname).toLowerCase();
+  if (![".csv", ".xlsx", ".xls"].includes(ext)) {
+    fs.unlinkSync(req.file.path);
+    return res.status(400).json({ error: "Only CSV or Excel files are supported" });
+  }
+
+  // Save with original name in uploads folder
+  const destPath = path.join(__dirname, "uploads", req.file.originalname);
+  fs.renameSync(req.file.path, destPath);
+
+  // Update config with new file path
+  const cfg = readConfig();
+  cfg.excel.file = destPath;
+  writeConfig(cfg);
+
+  res.json({ success: true, filename: req.file.originalname });
+});
+
+// ── Update cookie (admin only) ───────────────────────────────────────────────
+app.post("/api/update-cookie", (req, res) => {
+  try {
+    const { cookie } = req.body;
+    const cfg = readConfig();
+    cfg.auth.cookie = cookie;
+    writeConfig(cfg);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Google Drive Auth ─────────────────────────────────────────────────────────
+app.get("/auth/google", (req, res) => res.redirect(getAuthUrl()));
+
+app.get("/auth/google/callback", async (req, res) => {
+  try {
+    await handleCallback(req.query.code);
+    res.send(`
+      <html><body style="font-family:'Google Sans',Roboto,sans-serif;text-align:center;padding:60px;background:#f8f9fa">
+        <div style="background:white;border-radius:12px;padding:40px;display:inline-block;border:1px solid #e0e0e0">
+          <div style="font-size:48px">✅</div>
+          <h2 style="color:#1a73e8;margin:16px 0 8px">Google Drive Connected!</h2>
+          <p style="color:#5f6368">You can close this tab and go back to the app.</p>
+          <script>setTimeout(() => window.close(), 2000)</script>
+        </div>
+      </body></html>
+    `);
+  } catch (e) {
+    res.status(500).send(`Auth failed: ${e.message}`);
+  }
+});
+
+app.get("/api/gdrive-status", (req, res) => res.json({ connected: isConnected() }));
+
+app.post("/api/gdrive-disconnect", (req, res) => {
+  const cfg = readConfig();
+  cfg.google.tokens = null;
+  writeConfig(cfg);
+  res.json({ success: true });
+});
+
+// ── Report ───────────────────────────────────────────────────────────────────
+const REPORT_PATH = path.join(__dirname, "uploads", "report.json");
+
+app.get("/api/report", (req, res) => {
+  if (!fs.existsSync(REPORT_PATH)) return res.json(null);
+  try { res.json(JSON.parse(fs.readFileSync(REPORT_PATH, "utf8"))); }
+  catch { res.json(null); }
+});
+
+// ── Run (SSE) ─────────────────────────────────────────────────────────────────
+app.get("/api/run", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const send = (type, message) =>
+    res.write(`data: ${JSON.stringify({ type, message })}\n\n`);
+
+  // Check a file is selected
+  const cfg = readConfig();
+  if (!cfg.excel.file || !fs.existsSync(cfg.excel.file)) {
+    send("error", "No file selected. Please upload a CSV or Excel file first.");
+    send("done", "1");
+    res.end();
+    return;
+  }
+
+  if (runningProcess) {
+    send("error", "A download is already in progress.");
+    send("done", "1");
+    res.end();
+    return;
+  }
+
+  runningProcess = spawn("node", ["download.js"], { cwd: __dirname });
+  runningProcess.stdout.on("data", (d) => send("log", d.toString()));
+  runningProcess.stderr.on("data", (d) => send("error", d.toString()));
+  runningProcess.on("close", (code) => {
+    send("done", String(code));
+    runningProcess = null;
+    res.end();
+  });
+
+  req.on("close", () => {
+    if (runningProcess) { runningProcess.kill(); runningProcess = null; }
+  });
+});
+
+// ── Rescan (SSE) ──────────────────────────────────────────────────────────────
+app.get("/api/rescan", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const send = (type, message) =>
+    res.write(`data: ${JSON.stringify({ type, message })}\n\n`);
+
+  if (runningProcess) {
+    send("error", "A download is already in progress.");
+    send("done", "1");
+    res.end();
+    return;
+  }
+
+  runningProcess = spawn("node", ["download.js", "--rescan"], { cwd: __dirname });
+  runningProcess.stdout.on("data", (d) => send("log", d.toString()));
+  runningProcess.stderr.on("data", (d) => send("error", d.toString()));
+  runningProcess.on("close", (code) => {
+    send("done", String(code));
+    runningProcess = null;
+    res.end();
+  });
+
+  req.on("close", () => {
+    if (runningProcess) { runningProcess.kill(); runningProcess = null; }
+  });
+});
+
+app.post("/api/stop", (req, res) => {
+  if (runningProcess) { runningProcess.kill(); runningProcess = null; res.json({ stopped: true }); }
+  else res.json({ stopped: false });
+});
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log(`\n  Westside Downloader → http://localhost:${PORT}\n`));
