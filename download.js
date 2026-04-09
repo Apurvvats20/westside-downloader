@@ -122,7 +122,7 @@ async function getFilesRecursive(folderServerRelativeUrl, siteUrl, dpiFilter, de
       .map((f) => ({ name: f.Name, url: f.ServerRelativeUrl }));
 
     const subFolders = (foldersResponse?.d?.results || [])
-      .filter((f) => f.Name !== "Forms" && !(dpiFilter && isDpiSiblingFolder(f.Name, dpiFilter)));
+      .filter((f) => f.Name !== "Forms" && !(dpiFilter && isDpiSiblingFolder(f.Name, dpiFilter)) && !isQuinnOutputsFolder(f.Name));
 
     // Log subfolder names at depth 0 and 1 so user sees progress
     if (depth <= 1 && subFolders.length > 0) {
@@ -149,6 +149,12 @@ async function getFilesRecursive(folderServerRelativeUrl, siteUrl, dpiFilter, de
 function isDpiSiblingFolder(folderName, dpiFilter) {
   const known = ["96 DPI","300 DPI","72 DPI","TIFF","768 x 1024","1024 x 1366"];
   return known.includes(folderName) && folderName !== dpiFilter;
+}
+
+function isQuinnOutputsFolder(folderName) {
+  // Normalise: lowercase, strip spaces and hyphens, then check
+  const norm = folderName.toLowerCase().replace(/[\s\-_]+/g, "");
+  return norm === "quinnoutputs" || norm.includes("quinnoutput");
 }
 
 function downloadFile(fileServerRelativeUrl, destPath, siteUrl) {
