@@ -1,8 +1,7 @@
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
-const os = require("os");
-const { spawn, exec } = require("child_process");
+const { spawn } = require("child_process");
 const multer = require("multer");
 const { getAuthUrl, handleCallback, isConnected, uploadSmallFile, downloadSmallFile, listFilesInFolder, getUploadsFolderId } = require("./gdrive");
 
@@ -153,24 +152,51 @@ app.post("/api/gdrive-disconnect", (req, res) => {
 
 // ── Report ───────────────────────────────────────────────────────────────────
 const REPORT_PATH = path.join(__dirname, "uploads", "report.json");
+const DRIVE_REPORT_NAME = "westside_report.json";
+let _reportFolderId = null;
 
-app.get("/api/report", (req, res) => {
-  // Try local file first, fallback to config
+async function getReportFromDrive() {
+  if (!isConnected()) return null;
+  try {
+    const folderId = await getUploadsFolderId();
+    _reportFolderId = folderId;
+    const files = await listFilesInFolder(folderId);
+    const reportFile = files.find(f => f.name === DRIVE_REPORT_NAME);
+    if (!reportFile) return null;
+    const content = await downloadSmallFile(reportFile.id);
+    return typeof content === "string" ? JSON.parse(content) : content;
+  } catch { return null; }
+}
+
+async function saveReportToDrive(report) {
+  if (!isConnected()) return;
+  try {
+    const folderId = _reportFolderId || await getUploadsFolderId();
+    _reportFolderId = folderId;
+    fs.mkdirSync(path.join(__dirname, "uploads"), { recursive: true });
+    fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2), "utf8");
+    await uploadSmallFile(REPORT_PATH, DRIVE_REPORT_NAME, folderId);
+  } catch (e) { console.error("Failed to save report to Drive:", e.message); }
+}
+
+app.get("/api/report", async (req, res) => {
+  // Try local file first (fast)
   if (fs.existsSync(REPORT_PATH)) {
     try { return res.json(JSON.parse(fs.readFileSync(REPORT_PATH, "utf8"))); } catch {}
   }
-  // Try reading from config.reports keyed by current file
-  try {
-    const cfg = readConfig();
-    if (cfg.currentReportKey && cfg.reports?.[cfg.currentReportKey]) {
-      return res.json(cfg.reports[cfg.currentReportKey]);
-    }
-  } catch {}
+  // Fallback: fetch from Drive (survives redeploys)
+  const report = await getReportFromDrive();
+  if (report) {
+    // Cache locally for subsequent requests
+    fs.mkdirSync(path.join(__dirname, "uploads"), { recursive: true });
+    fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2), "utf8");
+    return res.json(report);
+  }
   res.json(null);
 });
 
 // ── Seed report (one-time use to set initial state) ───────────────────────────
-app.post("/api/seed-report", (req, res) => {
+app.post("/api/seed-report", async (req, res) => {
   try {
     const report = req.body;
     const cfg = readConfig();
@@ -178,10 +204,11 @@ app.post("/api/seed-report", (req, res) => {
     if (!cfg.reports) cfg.reports = {};
     cfg.reports[reportKey] = report;
     cfg.currentReportKey = reportKey;
-    // Also write local report.json
     fs.mkdirSync(path.join(__dirname, "uploads"), { recursive: true });
     fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2), "utf8");
     writeConfig(cfg);
+    // Persist to Drive so it survives redeploys
+    await saveReportToDrive(report);
     res.json({ success: true, foundCount: report.foundCount, notFoundCount: report.notFoundCount });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -246,8 +273,15 @@ function spawnWithSSE(script, args, res, send) {
   runningProcess = spawn("node", [script, ...args], { cwd: __dirname });
   runningProcess.stdout.on("data", (d) => send("log", d.toString()));
   runningProcess.stderr.on("data", (d) => send("error", d.toString()));
-  runningProcess.on("close", (code) => {
+  runningProcess.on("close", async (code) => {
     clearInterval(ping);
+    // Save report to Drive after run so it survives redeploys
+    if (fs.existsSync(REPORT_PATH)) {
+      try {
+        const report = JSON.parse(fs.readFileSync(REPORT_PATH, "utf8"));
+        await saveReportToDrive(report);
+      } catch {}
+    }
     send("done", String(code));
     runningProcess = null;
     res.end();

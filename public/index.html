@@ -495,6 +495,14 @@
       .then(report => {
         if (!report) return;
         showSummary(report.foundCount, report.notFoundCount);
+        // Also pre-enable run button and show file name if we have a report
+        if (report.file) {
+          document.getElementById("uploadZone").classList.add("has-file");
+          document.getElementById("fileInfo").style.display = "flex";
+          document.getElementById("fileName").textContent = report.file;
+          document.getElementById("runBtn").disabled = false;
+          document.getElementById("logsCard").style.display = "none";
+        }
       });
   }
 
