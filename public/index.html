@@ -494,14 +494,15 @@
       .then(r => r.json())
       .then(report => {
         if (!report) return;
+        // Show the logs card so the summary bar + rescan button are visible
+        document.getElementById("logsCard").style.display = "block";
         showSummary(report.foundCount, report.notFoundCount);
-        // Also pre-enable run button and show file name if we have a report
+        // Pre-enable run button and show file name
         if (report.file) {
           document.getElementById("uploadZone").classList.add("has-file");
           document.getElementById("fileInfo").style.display = "flex";
           document.getElementById("fileName").textContent = report.file;
           document.getElementById("runBtn").disabled = false;
-          document.getElementById("logsCard").style.display = "none";
         }
       });
   }
