@@ -152,9 +152,9 @@ function isDpiSiblingFolder(folderName, dpiFilter) {
 }
 
 function isQuinnOutputsFolder(folderName) {
-  // Normalise: lowercase, strip spaces and hyphens, then check
+  // Normalise: lowercase, strip spaces/hyphens/underscores, then check
   const norm = folderName.toLowerCase().replace(/[\s\-_]+/g, "");
-  return norm === "quinnoutputs" || norm.includes("quinnoutput");
+  return norm.includes("quinnoutput") || norm.includes("quinnouput");
 }
 
 function downloadFile(fileServerRelativeUrl, destPath, siteUrl) {
