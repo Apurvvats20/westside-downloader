@@ -676,7 +676,7 @@
     streamWithFetch(endpoint);
   }
 
-  async function streamWithFetch(endpoint) {
+  async function streamWithFetch(endpoint, isReconnect = false) {
     const controller = new AbortController();
     window._fetchAbort = controller;
     try {
@@ -696,14 +696,7 @@
             try {
               const { type, message } = JSON.parse(line.slice(6));
               if (type === "done") {
-                running = false;
-                document.getElementById("progressBar").style.display = "none";
-                document.getElementById("runBtn").className = "run-btn";
-                document.getElementById("runBtn").innerHTML = `<span class="material-icons">play_arrow</span> Start Download`;
-                document.getElementById("rescanBtn").disabled = false;
-                const code = parseInt(message, 10);
-                showToast(code === 0 ? "Completed successfully" : "Finished with some errors", code === 0 ? "success" : "error");
-                loadReport();
+                onRunComplete(parseInt(message, 10));
               } else {
                 if (message && message.includes("🔗 DRIVE_LINK:")) {
                   driveLink = message.split("🔗 DRIVE_LINK:")[1].trim();
@@ -723,13 +716,48 @@
         }
       }
     } catch (err) {
-      running = false;
-      document.getElementById("progressBar").style.display = "none";
-      document.getElementById("runBtn").className = "run-btn";
-      document.getElementById("runBtn").innerHTML = `<span class="material-icons">play_arrow</span> Start Download`;
-      document.getElementById("rescanBtn").disabled = false;
-      appendLog("Connection error: " + err.message, true);
+      if (err.name === "AbortError") return; // user stopped manually
+      // Connection dropped — poll until the server process finishes
+      appendLog("⚠️ Connection lost — waiting for server to finish…", false);
+      pollUntilDone();
     }
+  }
+
+  async function pollUntilDone() {
+    // Check every 5s if the run has finished (runningProcess will be null and report updated)
+    let attempts = 0;
+    const max = 60; // 5 min max
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const report = await fetch("/api/report").then(r => r.json());
+        // Detect completion: report updated recently (within last 10 min)
+        if (report && report.lastRun) {
+          const age = Date.now() - new Date(report.lastRun).getTime();
+          if (age < 600000) { // updated within 10 min = run just finished
+            clearInterval(interval);
+            appendLog("✅ Run completed (reconnected)", false);
+            onRunComplete(0);
+            showSummary(report.foundCount, report.notFoundCount);
+            return;
+          }
+        }
+        if (attempts >= max) {
+          clearInterval(interval);
+          onRunComplete(1);
+        }
+      } catch {}
+    }, 5000);
+  }
+
+  function onRunComplete(code) {
+    running = false;
+    document.getElementById("progressBar").style.display = "none";
+    document.getElementById("runBtn").className = "run-btn";
+    document.getElementById("runBtn").innerHTML = `<span class="material-icons">play_arrow</span> Start Download`;
+    document.getElementById("rescanBtn").disabled = false;
+    showToast(code === 0 ? "Completed successfully" : "Finished with some errors", code === 0 ? "success" : "error");
+    loadReport();
   }
 
   function stopRun() {

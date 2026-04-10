@@ -294,6 +294,28 @@ async function runExcelMode() {
 
 // ============ MODE: RESCAN NOT FOUND ============
 async function runRescanMode() {
+  // Try local file first; if missing (e.g. after a redeploy), pull from Drive
+  if (!fs.existsSync(REPORT_PATH)) {
+    console.log("⚠️  Local report not found — fetching from Google Drive...");
+    try {
+      const { isConnected, listFilesInFolder, downloadSmallFile, getUploadsFolderId } = require("./gdrive");
+      if (isConnected()) {
+        const folderId = await getUploadsFolderId();
+        const files = await listFilesInFolder(folderId);
+        const reportFile = files.find(f => f.name === "westside_report.json");
+        if (reportFile) {
+          const content = await downloadSmallFile(reportFile.id);
+          const driveReport = typeof content === "string" ? JSON.parse(content) : content;
+          fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
+          fs.writeFileSync(REPORT_PATH, JSON.stringify(driveReport, null, 2), "utf8");
+          console.log("✅ Report restored from Drive");
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch report from Drive:", e.message);
+    }
+  }
+
   if (!fs.existsSync(REPORT_PATH)) {
     console.error("❌ No previous report found. Run a full scan first.");
     process.exit(1);
