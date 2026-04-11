@@ -267,8 +267,9 @@ async function runExcelMode() {
   // Also persist report inside config.json so it survives restarts
   const fullConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "config.json"), "utf8"));
   const uploadedFiles = fullConfig.uploadedFiles || {};
-  const fileEntry = Object.values(uploadedFiles).find(e => cfg.file.endsWith(path.basename(cfg.file)));
-  const reportKey = fileEntry ? `report_${fileEntry.driveFileId}` : `report_${path.basename(cfg.file)}`;
+  const basename = path.basename(cfg.file);
+  const fileEntry = uploadedFiles[basename];
+  const reportKey = fileEntry ? `report_${fileEntry.driveFileId}` : `report_${basename}`;
   if (!fullConfig.reports) fullConfig.reports = {};
   fullConfig.reports[reportKey] = reportData;
   fullConfig.currentReportKey = reportKey;

@@ -97,9 +97,21 @@ app.post("/api/select-file", async (req, res) => {
     writeConfig(cfg);
 
     // Load report — try Drive fileId key first, then filename key
-    const report = cfg.reports?.[`report_${fileId}`]
-      || cfg.reports?.[`report_${filename}`]
-      || (fs.existsSync(REPORT_PATH) ? JSON.parse(fs.readFileSync(REPORT_PATH, "utf8")) : null);
+    const reportKey = cfg.reports?.[`report_${fileId}`]
+      ? `report_${fileId}`
+      : cfg.reports?.[`report_${filename}`]
+      ? `report_${filename}`
+      : null;
+    const report = reportKey
+      ? cfg.reports[reportKey]
+      : (fs.existsSync(REPORT_PATH) ? JSON.parse(fs.readFileSync(REPORT_PATH, "utf8")) : null);
+
+    // Write this file's report as the active report so rescan uses the right data
+    if (report) {
+      fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
+      fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2), "utf8");
+      if (reportKey) { cfg.currentReportKey = reportKey; writeConfig(cfg); }
+    }
 
     res.json({ success: true, filename, report });
   } catch (e) {
