@@ -97,14 +97,13 @@ app.post("/api/select-file", async (req, res) => {
     writeConfig(cfg);
 
     // Load report — try Drive fileId key first, then filename key
+    // Do NOT fall back to report.json — that belongs to a different CSV
     const reportKey = cfg.reports?.[`report_${fileId}`]
       ? `report_${fileId}`
       : cfg.reports?.[`report_${filename}`]
       ? `report_${filename}`
       : null;
-    const report = reportKey
-      ? cfg.reports[reportKey]
-      : (fs.existsSync(REPORT_PATH) ? JSON.parse(fs.readFileSync(REPORT_PATH, "utf8")) : null);
+    const report = reportKey ? cfg.reports[reportKey] : null;
 
     // Write this file's report as the active report so rescan uses the right data
     if (report) {
